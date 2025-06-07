@@ -24,7 +24,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"strings"
 	"sync"
 	"time"
 )
@@ -131,17 +130,26 @@ func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	var response strings.Builder
-	response.WriteString("**🏪 Tienda**\n\n")
-
-	for key, item := range shop.Items {
-		response.WriteString(fmt.Sprintf("**%s** (%s)\n", item.Nombre, key))
-		response.WriteString(fmt.Sprintf("💰 Precio: %d bostes\n", item.Precio))
-		response.WriteString(fmt.Sprintf("📦 Cantidad disponible: %d\n", item.Cantidad))
-		response.WriteString(fmt.Sprintf("📝 Descripción: %s\n\n", item.Descripcion))
+	embed := &discordgo.MessageEmbed{
+		Title:       "🏪 Tienda",
+		Description: "Aquí tienes los artículos disponibles:",
+		Color:       0xf3cfb2, // Color que puedes personalizar (aquí uno suave)
+		Fields:      []*discordgo.MessageEmbedField{},
 	}
 
-	s.ChannelMessageSend(m.ChannelID, response.String())
+	for key, item := range shop.Items {
+		field := &discordgo.MessageEmbedField{
+			Name:   fmt.Sprintf("__%s__ (%s)", item.Nombre, key),
+			Value:  fmt.Sprintf("💰 Precio: %d bostes\n📦 Cantidad disponible: %d\n📝 Descripción: %s", item.Precio, item.Cantidad, item.Descripcion),
+			Inline: false,
+		}
+		embed.Fields = append(embed.Fields, field)
+	}
+
+	_, err := s.ChannelMessageSendEmbed(m.ChannelID, embed)
+	if err != nil {
+		log.Printf("Error enviando embed: %v", err)
+	}
 }
 
 func (s *Shop) Load() error {

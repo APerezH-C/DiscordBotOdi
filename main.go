@@ -17,7 +17,7 @@ var (
 	userPoints = &UserPoints{}
 	userStats  = &UserStats{}
 
-	token = "Bot MTM3OTQ1OTMzOTM3ODc1NzY4Mg.G3KBK1.XhyuO1RIGksFrRteHWzAic4y6PWdMu3tL03Sg8"
+	token = "Bot MTM3OTQ1OTMzOTM3ODc1NzY4Mg.GO03f6.S3W9EKizwoWQz3PX1akwxAyOgIxVoBB5pbx3q8"
 )
 
 func main() {

@@ -12,6 +12,7 @@ func handleHelpCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 				Name: "🎲 Comandos de Juego",
 				Value: "`!bosteDice <under/over> <número 1-95> <cantidad>` - Juega a los dados eligiendo porcentaje y posicion\n" +
 					"`!apuesta <cantidad>` - Apuesta puntos en un juego\n" +
+					"`!revertirApuesta` - Revierte la apuesta\n" +
 					"`!cargar <1-9>` - Recarga la ruleta rusa",
 				Inline: false,
 			},

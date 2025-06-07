@@ -1,17 +1,30 @@
 package main
 
 import (
-	"encoding/json"
+	"RuletaRusaOdi/database"
+	"context"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"io/ioutil"
-	"os"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
+	"time"
 )
 
 func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	stats, exists := estadisticas[m.Author.ID]
+
+	er := userStats.load()
+	if er != nil {
+		log.Printf("Error cargando estadísticas: %v", er)
+	}
+
+	userStats.mu.Lock()
+	stats, exists := userStats.Stats[m.Author.ID]
+	userStats.mu.Unlock()
+
 	if !exists {
-		s.ChannelMessageSend(m.ChannelID, "📊 No tienes estadísticas registradas aún")
+		s.ChannelMessageSend(m.ChannelID, "📊 No tienes estadísticas registradas aún.")
 		return
 	}
 
@@ -56,25 +69,57 @@ func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSendEmbed(m.ChannelID, embed)
 }
 
-func saveStats() error {
-	data, err := json.MarshalIndent(estadisticas, "", "  ")
-	if err != nil {
-		return err
+func (us *UserStats) load() error {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("dice_stats")
+	var result struct {
+		Stats map[string]UserStat `bson:"stats"`
 	}
-	return ioutil.WriteFile(statsFile, data, 0644)
+
+	err := collection.FindOne(ctx, bson.M{}).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			us.Stats = make(map[string]UserStat)
+			return nil
+		}
+		return fmt.Errorf("error al cargar estadísticas: %w", err)
+	}
+
+	us.Stats = result.Stats
+	return nil
 }
 
-// Cargar estadísticas desde archivo
-func loadStats() error {
-	if _, err := os.Stat(statsFile); os.IsNotExist(err) {
-		// Archivo no existe, no hay nada que cargar
-		return nil
-	}
+// Guardar en MongoDB
+func (us *UserStats) save() error {
+	us.mu.Lock()
+	defer us.mu.Unlock()
 
-	data, err := ioutil.ReadFile(statsFile)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("dice_stats")
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{},
+		bson.M{"$set": bson.M{"stats": us.Stats}},
+		options.Update().SetUpsert(true),
+	)
+
 	if err != nil {
-		return err
+		return fmt.Errorf("error al guardar estadísticas: %w", err)
 	}
+	return nil
+}
 
-	return json.Unmarshal(data, &estadisticas)
+func (us *UserStats) get(userID string) (UserStat, bool) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	stat, exists := us.Stats[userID]
+	return stat, exists
 }

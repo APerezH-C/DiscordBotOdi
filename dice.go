@@ -5,18 +5,23 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"strconv"
 	"strings"
+	"sync"
 )
 
+type UserStat struct {
+	ApuestasTotales int     `bson:"apuestas_totales"`
+	TotalApostado   float64 `bson:"total_apostado"`
+	TotalGanado     float64 `bson:"total_ganado"`
+	NonceActual     int     `bson:"nonce_actual"`
+}
+
 type UserStats struct {
-	ApuestasTotales int     `json:"apuestas_totales"`
-	TotalApostado   float64 `json:"total_apostado"`
-	TotalGanado     float64 `json:"total_ganado"`
-	NonceActual     int     `json:"nonce_actual"`
+	Stats map[string]UserStat `bson:"stats"`
+	mu    sync.Mutex
 }
 
 var (
-	diceEngine   = NewDiceEngine()
-	estadisticas = make(map[string]UserStats)
+	diceEngine = NewDiceEngine()
 )
 
 func handleDiceCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
@@ -26,7 +31,11 @@ func handleDiceCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []
 	}
 
 	userID := m.Author.ID
-	stats := estadisticas[userID]
+
+	stats, exists := userStats.get(userID)
+	if !exists {
+		stats = UserStat{}
+	}
 
 	// Validar tipo de apuesta
 	betType := strings.ToLower(args[0])
@@ -75,15 +84,19 @@ func handleDiceCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []
 	stats.TotalApostado += amount
 
 	if win {
-		userPoints.Add(userID, float64(payout)-amount)
+		userPoints.Add(userID, payout-amount)
 		stats.TotalGanado += payout - amount
 	} else {
-		userPoints.Add(userID, -float64(amount))
+		userPoints.Add(userID, -amount)
 	}
 
-	estadisticas[userID] = stats
-	saveStats()
-	userPoints.Save("points.json")
+	// Guardar en mapa con mutex
+	userStats.mu.Lock()
+	userStats.Stats[userID] = stats
+	userStats.mu.Unlock()
+
+	userStats.save()
+	userPoints.Save()
 
 	// Mostrar resultado
 	embed := createDiceEmbed(m.Author, rollResult, win, amount, payout, target, betType, clientSeed, stats.NonceActual)

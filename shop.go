@@ -16,14 +16,17 @@
 package main
 
 import (
-	"encoding/json"
+	"RuletaRusaOdi/database"
+	"context"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"io/ioutil"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -31,18 +34,24 @@ var (
 )
 
 type ShopItem struct {
-	Nombre      string `json:"Nombre"`
-	Precio      int    `json:"Precio"`
-	Cantidad    int    `json:"Cantidad"`
-	Descripcion string `json:"Descripcion"`
+	Nombre      string `bson:"Nombre"`
+	Precio      int    `bson:"Precio"`
+	Cantidad    int    `bson:"Cantidad"`
+	Descripcion string `bson:"Descripcion"`
 }
 
 type Shop struct {
-	Items map[string]ShopItem `json:"items"`
+	Items map[string]ShopItem `bson:"items"`
 	mu    sync.Mutex
 }
 
 func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
+
+	er := shop.Load()
+	if er != nil {
+		log.Printf("Error cargando tienda: %v", er)
+	}
+
 	if len(args) < 1 {
 		s.ChannelMessageSend(m.ChannelID, "Uso: !bosteCompra <nombre-del-objeto>")
 		return
@@ -51,7 +60,6 @@ func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []s
 	itemKey := args[0]
 	userID := m.Author.ID
 
-	// Verificar objeto
 	shop.mu.Lock()
 	item, exists := shop.Items[itemKey]
 	shop.mu.Unlock()
@@ -67,51 +75,54 @@ func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []s
 	}
 
 	// Verificar y restar puntos
-	if userPoints.Get(m.Author.ID) < float64(item.Precio) {
+	if userPoints.Get(userID) < float64(item.Precio) {
 		s.ChannelMessageSend(m.ChannelID,
-			fmt.Sprintf("Saldo insuficiente. Necesitas %.2f bostes y tienes %.2f",
-				float64(item.Precio), userPoints.Get(m.Author.ID)))
+			fmt.Sprintf("Saldo insuficiente. Necesitas %d bostes y tienes %.2f",
+				item.Precio, userPoints.Get(userID)))
 		return
 	}
 
-	// Restar puntos (nota: item.Precio sigue siendo int en ShopItem)
-	success := userPoints.Add(m.Author.ID, -float64(item.Precio))
+	success := userPoints.Add(userID, -float64(item.Precio))
 	if !success {
 		s.ChannelMessageSend(m.ChannelID, "Error al procesar la compra")
 		return
 	}
 
-	// Actualizar tienda
 	shop.mu.Lock()
 	item.Cantidad--
 	shop.Items[itemKey] = item
 	shop.mu.Unlock()
 
-	// Actualizar inventario
+	// Actualizar inventario (ya debe estar adaptado a MongoDB)
 	inventory.AddItem(userID, item.Nombre)
 
-	// Guardar cambios
-	if err := userPoints.Save("points.json"); err != nil {
+	// Guardar cambios en puntos, tienda e inventario
+	if err := userPoints.Save(); err != nil {
 		log.Printf("Error guardando bostes: %v", err)
 		s.ChannelMessageSend(m.ChannelID, "Error al guardar los puntos. Contacta con un admin.")
 		return
 	}
 
-	if err := shop.Save("shop.json"); err != nil {
+	if err := shop.Save(); err != nil {
 		log.Printf("Error guardando tienda: %v", err)
 	}
 
-	if err := inventory.Save("inventario.json"); err != nil {
+	if err := inventory.Save(); err != nil {
 		log.Printf("Error guardando inventario: %v", err)
 	}
 
-	// Mensaje de confirmación con nuevo balance
 	s.ChannelMessageSend(m.ChannelID,
 		fmt.Sprintf("✅ Compra exitosa! Has adquirido **%s** por %d bostes. Tu nuevo saldo: %.2f",
 			item.Nombre, item.Precio, userPoints.Get(userID)))
 }
 
 func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	er := shop.Load()
+	if er != nil {
+		log.Printf("Error cargando tienda: %v", er)
+	}
+
 	shop.mu.Lock()
 	defer shop.mu.Unlock()
 
@@ -133,30 +144,47 @@ func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, response.String())
 }
 
-func (s *Shop) Load(filename string) error {
+func (s *Shop) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := ioutil.ReadFile(filename)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("shop")
+
+	var result Shop
+	err := collection.FindOne(ctx, bson.M{}).Decode(&result)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if err == mongo.ErrNoDocuments {
 			s.Items = make(map[string]ShopItem)
 			return nil
 		}
-		return err
+		return fmt.Errorf("error al cargar tienda: %w", err)
 	}
 
-	return json.Unmarshal(data, s)
+	s.Items = result.Items
+	return nil
 }
 
-func (s *Shop) Save(filename string) error {
+func (s *Shop) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := json.MarshalIndent(s, "", "  ")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("shop")
+
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{}, // filtro vacío para documento único
+		bson.M{"$set": bson.M{"items": s.Items}},
+		options.Update().SetUpsert(true),
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("error al guardar tienda: %w", err)
 	}
 
-	return ioutil.WriteFile(filename, data, 0644)
+	return nil
 }

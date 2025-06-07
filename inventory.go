@@ -1,36 +1,42 @@
 package main
 
 import (
-	"encoding/json"
+	"RuletaRusaOdi/database"
+	"context"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"io/ioutil"
-	"os"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
 	inventory Inventory
 )
 
-type PurchasedItem struct {
-	ProductosCanjeados []string `json:"productos_Canjeados"`
-}
-
 type Inventory struct {
-	Users map[string]PurchasedItem `json:"users"`
+	Users map[string][]string `bson:"users"`
 	mu    sync.Mutex
 }
 
 func handleInventoryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	er := inventory.Load()
+	if er != nil {
+		log.Printf("Error cargando inventario: %v", er)
+	}
+
 	userID := m.Author.ID
 
 	inventory.mu.Lock()
 	defer inventory.mu.Unlock()
 
-	userInventory, exists := inventory.Users[userID]
-	if !exists || len(userInventory.ProductosCanjeados) == 0 {
+	userItems, exists := inventory.Users[userID]
+	if !exists || len(userItems) == 0 {
 		s.ChannelMessageSend(m.ChannelID, "No tienes ningún bosteObjeto en tu inventario.")
 		return
 	}
@@ -38,13 +44,11 @@ func handleInventoryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var response strings.Builder
 	response.WriteString(fmt.Sprintf("**🎒 Inventario de %s**\n\n", m.Author.Username))
 
-	// Contar objetos duplicados
 	itemCounts := make(map[string]int)
-	for _, item := range userInventory.ProductosCanjeados {
+	for _, item := range userItems {
 		itemCounts[item]++
 	}
 
-	// Mostrar objetos y cantidades
 	for item, count := range itemCounts {
 		response.WriteString(fmt.Sprintf("- %s (x%d)\n", item, count))
 	}
@@ -52,32 +56,49 @@ func handleInventoryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, response.String())
 }
 
-func (i *Inventory) Load(filename string) error {
+func (i *Inventory) Load() error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	data, err := ioutil.ReadFile(filename)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("inventory")
+	var result Inventory
+
+	err := collection.FindOne(ctx, bson.M{}).Decode(&result)
 	if err != nil {
-		if os.IsNotExist(err) {
-			i.Users = make(map[string]PurchasedItem)
+		if err == mongo.ErrNoDocuments {
+			i.Users = make(map[string][]string)
 			return nil
 		}
-		return err
+		return fmt.Errorf("error al cargar inventario: %w", err)
 	}
 
-	return json.Unmarshal(data, i)
+	i.Users = result.Users
+	return nil
 }
 
-func (i *Inventory) Save(filename string) error {
+func (i *Inventory) Save() error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	data, err := json.MarshalIndent(i, "", "  ")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("inventory")
+
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{},
+		bson.M{"$set": bson.M{"users": i.Users}},
+		options.Update().SetUpsert(true),
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("error al guardar inventario: %w", err)
 	}
 
-	return ioutil.WriteFile(filename, data, 0644)
+	return nil
 }
 
 func (i *Inventory) AddItem(userID, itemName string) {
@@ -85,16 +106,8 @@ func (i *Inventory) AddItem(userID, itemName string) {
 	defer i.mu.Unlock()
 
 	if i.Users == nil {
-		i.Users = make(map[string]PurchasedItem)
+		i.Users = make(map[string][]string)
 	}
 
-	if _, exists := i.Users[userID]; !exists {
-		i.Users[userID] = PurchasedItem{
-			ProductosCanjeados: []string{},
-		}
-	}
-
-	userItems := i.Users[userID]
-	userItems.ProductosCanjeados = append(userItems.ProductosCanjeados, itemName)
-	i.Users[userID] = userItems
+	i.Users[userID] = append(i.Users[userID], itemName)
 }

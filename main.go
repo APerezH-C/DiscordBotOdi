@@ -1,6 +1,7 @@
 package main
 
 import (
+	"RuletaRusaOdi/database"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"log"
@@ -13,25 +14,42 @@ import (
 var (
 	matchID string
 
-	userPoints UserPoints
+	userPoints = &UserPoints{}
+	userStats  = &UserStats{}
 
 	token = "Bot MTM3OTQ1OTMzOTM3ODc1NzY4Mg.G3KBK1.XhyuO1RIGksFrRteHWzAic4y6PWdMu3tL03Sg8"
 )
 
-const statsFile = "dice_stats.json"
-
 func main() {
+
+	err := database.Connect("mongodb+srv://jandropehe4:3542Mayo14_88+@pereezz.6iuh8di.mongodb.net/?retryWrites=true&w=majority&appName=Pereezz")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer database.Close()
+
 	// Crear sesión de Discord
 	dg, err := discordgo.New(token)
 	if err != nil {
 		log.Fatal("Error al crear sesión de Discord:", err)
 	}
 
-	userPoints.Load("points.json")
-	shop.Load("shop.json")
-	inventory.Load("inventario.json")
+	err = userPoints.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	err = loadStats()
+	err = shop.Load()
+	if err != nil {
+		log.Printf("Error cargando tienda: %v", err)
+	}
+
+	err = inventory.Load()
+	if err != nil {
+		log.Printf("Error cargando inventario: %v", err)
+	}
+
+	err = userStats.load()
 	if err != nil {
 		log.Printf("Error cargando estadísticas: %v", err)
 	}

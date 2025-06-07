@@ -1,53 +1,74 @@
 package main
 
 import (
-	"encoding/json"
+	"RuletaRusaOdi/database"
+	"context"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"io/ioutil"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"os"
 	"sync"
 	"time"
 )
 
 var (
-	dbFile        = "points.json"
 	checkInterval = 10 * time.Minute
 )
 
 // Estructuras de datos
 type UserPoints struct {
-	Points map[string]float64 `json:"points"`
+	Points map[string]float64 `bson:"points"`
 	mu     sync.Mutex
 }
 
-func (up *UserPoints) Load(filename string) error {
+func (up *UserPoints) Load() error {
 	up.mu.Lock()
 	defer up.mu.Unlock()
 
-	data, err := ioutil.ReadFile(filename)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	collection := database.GetCollection("points")
+	var result struct {
+		Points map[string]float64 `bson:"points"`
+	}
+
+	err := collection.FindOne(ctx, bson.M{}).Decode(&result)
 	if err != nil {
-		if os.IsNotExist(err) {
-			up.Points = make(map[string]float64)
+		if err == mongo.ErrNoDocuments {
+			// Documento no existe, se mantiene el mapa vacío inicial
 			return nil
 		}
-		return err
+		return fmt.Errorf("error al cargar puntos: %w", err)
 	}
 
-	return json.Unmarshal(data, up)
+	if result.Points != nil {
+		up.Points = result.Points
+	}
+	return nil
 }
 
-func (up *UserPoints) Save(filename string) error {
+func (up *UserPoints) Save() error {
 	up.mu.Lock()
 	defer up.mu.Unlock()
 
-	data, err := json.MarshalIndent(up, "", "  ")
-	if err != nil {
-		return err
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	return ioutil.WriteFile(filename, data, 0644)
+	collection := database.GetCollection("points")
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{},
+		bson.M{"$set": bson.M{"points": up.Points}},
+		options.Update().SetUpsert(true),
+	)
+
+	if err != nil {
+		return fmt.Errorf("error al guardar puntos: %w", err)
+	}
+	return nil
 }
 
 func (up *UserPoints) Add(userID string, points float64) bool {
@@ -86,12 +107,27 @@ func (up *UserPoints) Set(userID string, amount float64) { // Nueva función par
 }
 
 func handlePuntosCommands(s *discordgo.Session, m *discordgo.MessageCreate, content string) {
-	if content == "!bostes" {
-		puntos := userPoints.Get(m.Author.ID)
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("<@%s> tienes %.2f bostes.", m.Author.ID, puntos))
+	if m.Author.Bot { // Ignorar mensajes de otros bots
+		return
 	}
 
-	if content == "!ranking" {
+	switch content {
+	case "!bostes":
+		er := userPoints.Load()
+		if er != nil {
+			log.Fatal(er)
+		}
+		puntos := userPoints.Get(m.Author.ID)
+		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("<@%s> tienes %.2f bostes.", m.Author.ID, puntos))
+		if err != nil {
+			log.Printf("Error enviando mensaje: %v", err)
+		}
+
+	case "!ranking":
+		er := userPoints.Load()
+		if er != nil {
+			log.Fatal(er)
+		}
 		userPoints.mu.Lock()
 		defer userPoints.mu.Unlock()
 
@@ -99,7 +135,11 @@ func handlePuntosCommands(s *discordgo.Session, m *discordgo.MessageCreate, cont
 		for userID, pts := range userPoints.Points {
 			msg += fmt.Sprintf("<@%s>: %.2f bostes\n", userID, pts)
 		}
-		s.ChannelMessageSend(m.ChannelID, msg)
+
+		_, err := s.ChannelMessageSend(m.ChannelID, msg)
+		if err != nil {
+			log.Printf("Error enviando ranking: %v", err)
+		}
 	}
 }
 
@@ -109,20 +149,16 @@ func voiceChannelChecker(s *discordgo.Session) {
 
 	for range ticker.C {
 		for _, guild := range s.State.Guilds {
-			// Obtener estados de voz directamente del estado del guild
-			voiceStates := guild.VoiceStates
-
-			for _, vs := range voiceStates {
-				// Verificar si el usuario no está silenciado
+			for _, vs := range guild.VoiceStates {
 				if !vs.Mute && !vs.SelfMute && !vs.Deaf && !vs.SelfDeaf {
-					userPoints.Add(vs.UserID, 10)
-					log.Printf("Bostes añadidos a %s (ahora tiene %.2f)\n", vs.UserID, userPoints.Get(vs.UserID))
+					if added := userPoints.Add(vs.UserID, 5); added {
+						log.Printf("Bostes añadidos a %s (ahora tiene %.2f)\n", vs.UserID, userPoints.Get(vs.UserID))
+					}
 				}
 			}
 		}
 
-		err := userPoints.Save(dbFile)
-		if err != nil {
+		if err := userPoints.Save(); err != nil {
 			log.Printf("Error al guardar bostes: %v\n", err)
 		}
 	}

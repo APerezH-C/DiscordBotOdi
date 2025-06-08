@@ -113,6 +113,15 @@ func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []s
 	s.ChannelMessageSend(m.ChannelID,
 		fmt.Sprintf("✅ Compra exitosa! Has adquirido **%s** por %d bostes. Tu nuevo saldo: %.2f",
 			item.Nombre, item.Precio, userPoints.Get(userID)))
+
+	member, _ := s.GuildMember(m.GuildID, userID)
+	nickname := member.Nick
+	if nickname == "" {
+		nickname = member.User.Username
+	}
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("<@&%s>⚠️ %s compró **%s**  ⚠️", notificationRoleID, nickname, item.Nombre))
+
 }
 
 func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {

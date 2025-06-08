@@ -42,10 +42,12 @@ func watchForGame(s *discordgo.Session) {
 				bettingOpen = true
 
 				s.ChannelMessageSend(channelID, fmt.Sprintf(
-					"🎮 %s ha empezado una partida (%s). ¡Apuesten usando `!apuesta win|lose cantidad`!\n"+
+					"<@&%s>\n"+
+						"🎮 %s ha empezado una partida (%s). ¡Apuesten usando `!apuesta win|lose cantidad`!\n"+
 						"⚠️ Solo puedes apostar UNA vez por partida.\n"+
-						"⏰ Las apuestas se cerrarán en 4 minutos!",
-					summonerName, gameType))
+						"⏰ Las apuestas se cerrarán en 4 minutos! \n"+
+						"%s",
+					notificationRoleID, summonerName, gameType, "https://op.gg/es/lol/summoners/euw/Maestro shensual-PALO/ingame"))
 
 				// Iniciar temporizador para cerrar apuestas
 				bettingCloseCh = make(chan struct{})

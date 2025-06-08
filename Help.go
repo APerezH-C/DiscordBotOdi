@@ -31,9 +31,11 @@ func handleHelpCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			{
 				Name: "🛠️ Otros Comandos",
 				Value: "`!quienes <ID>` - Muestra información de un usuario (solo admin)\n" +
-					"`!bosteHelp` - Muestra esta ayuda" +
-					"`!bosteSeed` - Genera una nueva seed y muestra la anterior" +
-					"`!verify <server_seed> <client_seed> <nonce>` - Verifica el resultado del dice",
+					"`!bosteHelp` - Muestra esta ayuda\n" +
+					"`!bosteSeed` - Genera una nueva seed y muestra la anterior\n" +
+					"`!verify <server_seed> <client_seed> <nonce>` - Verifica el resultado del dice\n" +
+					"`!notificaciones on` - Activa las notificaciones\n" +
+					"`!notificaciones off` - Desactiva las notificaciones",
 				Inline: false,
 			},
 		},

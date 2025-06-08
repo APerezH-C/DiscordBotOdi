@@ -70,6 +70,7 @@ func main() {
 
 	// Iniciar el checker de voz en segundo plano
 	go voiceChannelChecker(dg)
+	go checkSpecialUser(dg)
 	go watchForGame(dg)
 
 	fmt.Println("Bot listo. Presiona CTRL+C para salir.")
@@ -105,7 +106,11 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if strings.HasPrefix(m.Content, "!verify") {
 		args := strings.Fields(m.Content)[1:]
 		handleVerifyCommand(s, m, args)
-	} else if strings.HasPrefix(m.Content, "!bosteSeed") {
-		handleNewSeedCommand(s, m)
+	} else if strings.HasPrefix(m.Content, "!notificaciones on") {
+		handleNotificationSubscribe(s, m)
+	} else if strings.HasPrefix(m.Content, "!notificaciones off") {
+		handleNotificationUnsubscribe(s, m)
+	} else if strings.HasPrefix(m.Content, "!!notificaciones") {
+		showNotificationStatus(s, m)
 	}
 }

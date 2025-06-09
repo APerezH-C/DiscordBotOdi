@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/bwmarrin/discordgo"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -23,23 +22,44 @@ func getDiscordCreationTime(userID string) (time.Time, error) {
 	return time.Unix(timestamp/1000, 0), nil
 }
 
-func handleWhoIsCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
-	if len(args) < 1 {
-		s.ChannelMessageSend(m.ChannelID, "Uso: `!quienes <ID de usuario>`")
+func handleWhoIsCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	const yourUserID = "431796013934837761"
+
+	// Verificar permisos
+	if i.Member.User.ID != yourUserID {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ No tienes permiso para usar este comando.",
+				Flags:   1 << 6,
+			},
+		})
 		return
 	}
 
-	userID := args[0]
+	userID := i.ApplicationCommandData().Options[0].StringValue()
 	user, err := s.User(userID)
 	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "❌ Usuario no encontrado")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Usuario no encontrado.",
+				Flags:   1 << 6,
+			},
+		})
 		return
 	}
 
 	// Obtener fecha de creación
 	creationTime, err := getDiscordCreationTime(user.ID)
 	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "❌ Error al obtener fecha de creación")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Error al obtener fecha de creación.",
+				Flags:   1 << 6,
+			},
+		})
 		return
 	}
 
@@ -74,27 +94,11 @@ func handleWhoIsCommand(s *discordgo.Session, m *discordgo.MessageCreate, args [
 		},
 	}
 
-	s.ChannelMessageSendEmbed(m.ChannelID, embed)
-}
-
-func getId(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Verificar si el mensaje es del bot
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	// Verificar si el comando es !quienes
-	if strings.HasPrefix(m.Content, "!quienes") {
-		// Tu ID de usuario
-		const yourUserID = "431796013934837761"
-
-		// Verificar si el autor del mensaje eres tú
-		if m.Author.ID != yourUserID {
-			s.ChannelMessageSend(m.ChannelID, "❌ No tienes permiso para usar este comando")
-			return
-		}
-
-		args := strings.Fields(m.Content)[1:]
-		handleWhoIsCommand(s, m, args)
-	}
+	// Enviar embed como respuesta
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
 }

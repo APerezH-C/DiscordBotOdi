@@ -81,18 +81,40 @@ func (de *DiceEngine) VerifyResult(clientSeed string, nonce int, serverSeed stri
 	return float64(roll%10000) / 100.0, true
 }
 
-func handleNewSeedCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID != "431796013934837761" {
-		s.ChannelMessageSend(m.ChannelID, "No tienes permiso.")
+func handleNewSeedCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	userID := i.Member.User.ID
+
+	if userID != "431796013934837761" {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ No tienes permiso.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
 	oldSeed := diceEngine.serverSeed
 	diceEngine.RotateSeed()
 
-	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(
+	newSeedPreview := ""
+	if len(diceEngine.serverSeed) >= 8 {
+		newSeedPreview = diceEngine.serverSeed[:8]
+	} else {
+		newSeedPreview = diceEngine.serverSeed
+	}
+
+	msg := fmt.Sprintf(
 		"🔁 Semilla regenerada.\n🔓 Semilla anterior (para verificar): `%s`\n🔐 Nueva semilla (solo primeros 8): `%s...`",
 		oldSeed,
-		diceEngine.serverSeed[:8],
-	))
+		newSeedPreview,
+	)
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: msg,
+		},
+	})
 }

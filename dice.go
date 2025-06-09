@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"strconv"
+	"log"
 	"strings"
 	"sync"
 )
@@ -24,102 +24,133 @@ var (
 	diceEngine = NewDiceEngine()
 )
 
-func handleDiceCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
-	if len(args) < 3 {
-		s.ChannelMessageSend(m.ChannelID, "Uso: `!bosteDice <under/over> <número> <cantidad>`")
+func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	// 1. Respuesta inmediata
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	}); err != nil {
+		log.Printf("Error respondiendo interacción: %v", err)
 		return
 	}
 
-	userID := m.Author.ID
+	go func() {
+		// Extraer opciones
+		options := i.ApplicationCommandData().Options
 
-	stats, exists := userStats.get(userID)
-	if !exists {
-		stats = UserStat{}
-	}
+		// Validar que tenemos las 3 opciones requeridas
+		if len(options) != 3 {
+			respondInteraction(s, i, "Uso: `/dice <under/over> <número> <cantidad>`")
+			return
+		}
 
-	// Validar tipo de apuesta
-	betType := strings.ToLower(args[0])
-	if betType != "under" && betType != "over" {
-		s.ChannelMessageSend(m.ChannelID, "Tipo de apuesta inválido. Usa `under` o `over`")
-		return
-	}
+		userID := i.Member.User.ID
 
-	// Validar número objetivo
-	target, err := strconv.ParseFloat(args[1], 64)
-	if betType == "under" && (target < underminNumber || target > undermaxNumber) {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Número inválido. Para under debe ser entre %.2f y %.2f", underminNumber, undermaxNumber))
-		return
-	}
-	if betType == "over" && (target < overminNumber || target > overmaxNumber) {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Número inválido. Para over debe ser entre %.2f y %.2f", overminNumber, overmaxNumber))
-		return
-	}
+		stats, exists := userStats.get(userID)
+		if !exists {
+			stats = UserStat{}
+		}
 
-	// Validar cantidad
-	amount, err := strconv.ParseFloat(args[2], 64)
-	if err != nil || amount < 1 {
-		s.ChannelMessageSend(m.ChannelID, "Cantidad inválida. Mínimo 1 punto")
-		return
-	}
+		// Obtener tipo de apuesta
+		betType := strings.ToLower(options[0].StringValue())
+		if betType != "under" && betType != "over" {
+			respondInteraction(s, i, "Tipo de apuesta inválido. Usa `under` o `over`")
+			return
+		}
 
-	// Verificar saldo
-	if userPoints.Get(userID) < float64(amount) {
-		s.ChannelMessageSend(m.ChannelID, "Saldo insuficiente")
-		return
-	}
+		// Obtener número objetivo
+		target := options[1].FloatValue()
+		if betType == "under" && (target < underminNumber || target > undermaxNumber) {
+			respondInteraction(s, i, fmt.Sprintf("Número inválido. Para under debe ser entre %.2f y %.2f", underminNumber, undermaxNumber))
+			return
+		}
+		if betType == "over" && (target < overminNumber || target > overmaxNumber) {
+			respondInteraction(s, i, fmt.Sprintf("Número inválido. Para over debe ser entre %.2f y %.2f", overminNumber, overmaxNumber))
+			return
+		}
 
-	// Incrementar nonce
-	stats.NonceActual++
-	clientSeed := fmt.Sprintf("%s_%d", userID, stats.NonceActual)
+		// Obtener cantidad
+		amount := options[2].FloatValue()
+		if amount < 1 {
+			respondInteraction(s, i, "Cantidad inválida. Mínimo 1 punto")
+			return
+		}
 
-	// Calcular resultado
-	rollResult := diceEngine.CalculateRoll(clientSeed, stats.NonceActual)
-	over := betType == "over"
-	win := (over && rollResult > target) || (!over && rollResult < target)
-	multiplier := diceEngine.GetMultiplier(target, over)
-	payout := amount * multiplier
+		// Verificar saldo
+		if userPoints.Get(userID) < float64(amount) {
+			respondInteraction(s, i, "Saldo insuficiente")
+			return
+		}
 
-	// Actualizar estadísticas
-	stats.ApuestasTotales++
-	stats.TotalApostado += amount
+		// Incrementar nonce
+		stats.NonceActual++
+		clientSeed := fmt.Sprintf("%s_%d", userID, stats.NonceActual)
 
-	if win {
-		userPoints.Add(userID, payout-amount)
-		stats.TotalGanado += payout - amount
-	} else {
-		userPoints.Add(userID, -amount)
-	}
+		// Calcular resultado (manteniendo tu lógica original)
+		rollResult := diceEngine.CalculateRoll(clientSeed, stats.NonceActual)
+		over := betType == "over"
+		win := (over && rollResult > target) || (!over && rollResult < target)
+		multiplier := diceEngine.GetMultiplier(target, over)
+		payout := amount * multiplier
 
-	// Guardar en mapa con mutex
-	userStats.mu.Lock()
-	userStats.Stats[userID] = stats
-	userStats.mu.Unlock()
+		// Actualizar estadísticas
+		stats.ApuestasTotales++
+		stats.TotalApostado += amount
 
-	userStats.save()
-	userPoints.Save()
+		if win {
+			userPoints.Add(userID, payout-amount)
+			stats.TotalGanado += payout - amount
+		} else {
+			userPoints.Add(userID, -amount)
+		}
 
-	// Mostrar resultado
-	embed := createDiceEmbed(m.Author, rollResult, win, amount, payout, target, betType, clientSeed, stats.NonceActual)
-	s.ChannelMessageSendEmbed(m.ChannelID, embed)
+		// Guardar estadísticas
+		userStats.mu.Lock()
+		userStats.Stats[userID] = stats
+		userStats.mu.Unlock()
+
+		userStats.save()
+		userPoints.Save()
+
+		// Crear y enviar embed con el resultado
+		embed := createDiceEmbed(i.Member.User, rollResult, win, amount, payout, target, betType, clientSeed, stats.NonceActual)
+
+		// Usar followup para enviar el embed después de la respuesta inicial
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		})
+
+		if err != nil {
+			log.Printf("Error enviando resultado de dados: %v", err)
+		}
+	}()
 }
 
-func handleVerifyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
-	if len(args) < 3 {
-		s.ChannelMessageSend(m.ChannelID, "Uso: `!verify <server_seed> <client_seed> <nonce>`")
+func handleVerifyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	if len(options) < 3 {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Faltan parámetros. Uso: `/verify <server_seed> <client_seed> <nonce>`",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
-	serverSeed := args[0]
-	clientSeed := args[1]
-	nonce, err := strconv.Atoi(args[2])
-	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "Nonce inválido")
-		return
-	}
+	serverSeed := options[0].StringValue()
+	clientSeed := options[1].StringValue()
+	nonce := int(options[2].IntValue())
 
 	rollResult, _ := diceEngine.VerifyResult(clientSeed, nonce, serverSeed)
 
-	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("✅ Resultado verificado: %.2f", rollResult))
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("✅ Resultado verificado: %.2f", rollResult),
+		},
+	})
 }
 
 func createDiceEmbed(user *discordgo.User, roll float64, win bool, amount, payout, target float64, betType, clientSeed string, nonce int) *discordgo.MessageEmbed {

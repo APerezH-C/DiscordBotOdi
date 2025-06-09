@@ -5,7 +5,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"log"
 	"math/rand"
-	"strings"
 	"time"
 )
 
@@ -15,71 +14,69 @@ var (
 	usedShots  = map[int]bool{}
 )
 
-func ruleta(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
+func handleRuletaCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Obtener los datos de la interacción
+	data := i.ApplicationCommandData()
 
-	content := strings.ToLower(m.Content)
-
-	// Comandos del juego de ruleta rusa
-	handleRuletaCommands(s, m, content)
-
-	// Comandos del sistema de boste
-	handlePuntosCommands(s, m, content)
-}
-
-func handleRuletaCommands(s *discordgo.Session, m *discordgo.MessageCreate, content string) {
-	if strings.HasPrefix(content, "!cargar") {
+	switch data.Name {
+	case "cargar":
+		// Verificar si ya hay un juego activo
 		if gameActive {
-			s.ChannelMessageSend(m.ChannelID, "Ya hay una partida activa. Usa `!terminar` para acabarla.")
+			respondInteraction(s, i, "Ya hay una partida activa. Usa `/terminar` para acabarla.")
 			return
 		}
 
+		// Obtener el número de balas del comando
 		var balas int
-		fmt.Sscanf(content, "!cargar %d", &balas)
+		if len(data.Options) > 0 {
+			if opt, ok := data.Options[0].Value.(float64); ok {
+				balas = int(opt)
+			}
+		}
 
+		// Validar el número de balas
 		if balas < 1 || balas > 9 {
-			s.ChannelMessageSend(m.ChannelID, "El número de balas debe estar entre 1 y 9.")
+			respondInteraction(s, i, "El número de balas debe estar entre 1 y 9.")
 			return
 		}
 
+		// Iniciar el juego
 		iniciarJuego(balas)
 		gameActive = true
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("🔫 Juego iniciado con %d bala(s) entre 9 ranuras de bala. ¡Prepárense!", balas))
-		return
-	}
+		respondInteraction(s, i, fmt.Sprintf("🔫 Juego iniciado con %d bala(s) entre 9 ranuras. ¡Prepárense!", balas))
 
-	if content == "!disparar" {
+	case "disparar":
+		// Verificar si hay un juego activo
 		if !gameActive {
-			s.ChannelMessageSend(m.ChannelID, "No hay una partida activa. Usa `!cargar <n>` para comenzar una.")
+			respondInteraction(s, i, "No hay una partida activa. Usa `/cargar <n>` para comenzar una.")
 			return
 		}
 
+		// Verificar si se han usado todas las ranuras
 		if len(usedShots) >= 9 {
-			s.ChannelMessageSend(m.ChannelID, "🔚 Todas las ranuras se han usado. Fin del juego.")
+			respondInteraction(s, i, "🔚 Todas las ranuras se han usado. Fin del juego.")
 			gameActive = false
 			return
 		}
 
+		// Realizar el disparo
 		disparo := disparar()
 		if disparo {
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("💥 %s ha muerto...", m.Author.Mention()))
+			respondInteraction(s, i, fmt.Sprintf("💥 %s ha muerto...", i.Member.User.Mention()))
 			gameActive = false
-			muteUser(s, m.GuildID, m.Author.ID, m.ChannelID)
+			muteUser(s, i.GuildID, i.Member.User.ID, i.ChannelID)
 		} else {
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("😮 %s ha sobrevivido.", m.Author.Mention()))
+			respondInteraction(s, i, fmt.Sprintf("😮 %s ha sobrevivido.", i.Member.User.Mention()))
 		}
-		return
-	}
 
-	if content == "!terminar" {
+	case "terminar":
+		// Verificar si hay un juego activo
 		if !gameActive {
-			s.ChannelMessageSend(m.ChannelID, "No hay un juego en curso.")
+			respondInteraction(s, i, "No hay un juego en curso.")
 			return
 		}
 		gameActive = false
-		s.ChannelMessageSend(m.ChannelID, "🛑 El juego ha sido terminado.")
+		respondInteraction(s, i, "🛑 El juego ha sido terminado.")
 	}
 }
 

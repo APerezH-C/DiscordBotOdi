@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+func handleStatsCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	userID := i.Member.User.ID
+	username := i.Member.User.Username
+	avatarURL := i.Member.User.AvatarURL("")
 
 	er := userStats.load()
 	if er != nil {
@@ -20,11 +24,16 @@ func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	userStats.mu.Lock()
-	stats, exists := userStats.Stats[m.Author.ID]
+	stats, exists := userStats.Stats[userID]
 	userStats.mu.Unlock()
 
 	if !exists {
-		s.ChannelMessageSend(m.ChannelID, "📊 No tienes estadísticas registradas aún.")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "📊 No tienes estadísticas registradas aún.",
+			},
+		})
 		return
 	}
 
@@ -35,7 +44,7 @@ func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title: fmt.Sprintf("📊 Estadísticas de %s", m.Author.Username),
+		Title: fmt.Sprintf("📊 Estadísticas de %s", username),
 		Color: 0x00ff00,
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -62,11 +71,16 @@ func handleStatsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			},
 		},
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: m.Author.AvatarURL(""),
+			URL: avatarURL,
 		},
 	}
 
-	s.ChannelMessageSendEmbed(m.ChannelID, embed)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
 }
 
 func (us *UserStats) load() error {

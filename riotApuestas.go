@@ -47,7 +47,7 @@ func watchForGame(s *discordgo.Session) {
 						"⚠️ Solo puedes apostar UNA vez por partida.\n"+
 						"⏰ Las apuestas se cerrarán en 4 minutos! \n"+
 						"%s",
-					notificationRoleID, summonerName, gameType, "https://op.gg/es/lol/summoners/euw/Maestro shensual-PALO/ingame"))
+					notificationRoleID, summonerName, gameType, "https://op.gg/es/lol/summoners/euw/MaestroShensual-PALO/ingame"))
 
 				// Iniciar temporizador para cerrar apuestas
 				bettingCloseCh = make(chan struct{})
@@ -73,105 +73,96 @@ func closeBettingAfterDelay(s *discordgo.Session, delay time.Duration) {
 }
 
 // Lógica de apuestas y comandos
-// Lógica de apuestas y comandos
-func riot(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.Bot {
+func handleBetCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
-	args := strings.Fields(m.Content)
-	if len(args) == 0 {
-		return
-	}
+	switch i.ApplicationCommandData().Name {
+	case "apuesta":
+		options := i.ApplicationCommandData().Options
 
-	switch args[0] {
-	case "!apuesta":
 		if !activeGame {
-			s.ChannelMessageSend(m.ChannelID, "❌ No hay partida activa.")
+			respondInteraction(s, i, "❌ No hay partida activa.")
 			return
 		}
 
 		if !bettingOpen {
-			s.ChannelMessageSend(m.ChannelID, "❌ Las apuestas están cerradas para esta partida.")
+			respondInteraction(s, i, "❌ Las apuestas están cerradas para esta partida.")
 			return
 		}
 
-		if len(args) != 3 {
-			s.ChannelMessageSend(m.ChannelID, "Uso: `!apuesta win|lose cantidad`")
+		if len(options) != 2 {
+			respondInteraction(s, i, "Uso: `/apuesta win|lose cantidad`")
 			return
 		}
 
-		// Verificar si ya apostó
-		if _, exists := currentBets[m.Author.ID]; exists {
-			s.ChannelMessageSend(m.ChannelID, "❌ Ya has apostado en esta partida.")
+		userID := i.Member.User.ID
+		if _, exists := currentBets[userID]; exists {
+			respondInteraction(s, i, "❌ Ya has apostado en esta partida.")
 			return
 		}
 
-		choice := strings.ToLower(args[1])
+		choice := strings.ToLower(options[0].StringValue())
 		if choice != "win" && choice != "lose" {
-			s.ChannelMessageSend(m.ChannelID, "Debes apostar por `win` o `lose`.")
+			respondInteraction(s, i, "Debes apostar por `win` o `lose`.")
 			return
 		}
 
-		var amount float64
-		_, err := fmt.Sscanf(args[2], "%f", &amount)
-		if err != nil || amount <= 0 {
-			s.ChannelMessageSend(m.ChannelID, "Cantidad inválida.")
+		amount := options[1].FloatValue()
+		if amount <= 0 {
+			respondInteraction(s, i, "Cantidad inválida.")
 			return
 		}
 
-		points := userPoints.Get(m.Author.ID)
+		points := userPoints.Get(userID)
 		if points < amount {
-			s.ChannelMessageSend(m.ChannelID,
-				fmt.Sprintf("❌ No tienes suficientes bostes (tienes %.2f).", points))
+			respondInteraction(s, i, fmt.Sprintf("❌ No tienes suficientes bostes (tienes %.2f).", points))
 			return
 		}
 
-		userPoints.Add(m.Author.ID, -amount)
-		currentBets[m.Author.ID] = Bet{
-			UserID:   m.Author.ID,
-			Username: m.Author.Username,
+		userPoints.Add(userID, -amount)
+		currentBets[userID] = Bet{
+			UserID:   userID,
+			Username: i.Member.User.Username,
 			Amount:   amount,
 			Choice:   choice,
 		}
 
-		s.ChannelMessageSend(m.ChannelID,
-			fmt.Sprintf("✅ Apuesta registrada: %.2f bostes por %s", amount, choice))
+		respondInteraction(s, i, fmt.Sprintf("✅ Apuesta registrada: %.2f bostes por %s", amount, choice))
 		_ = userPoints.Save()
 
-	case "!revertirApuesta":
-		// Verificar que solo el dueño pueda usar este comando
-		if m.Author.ID != "431796013934837761" {
-			s.ChannelMessageSend(m.ChannelID, "❌ Solo el dueño del bot puede usar este comando.")
+	case "revertirapuesta":
+		if i.Member.User.ID != "431796013934837761" {
+			respondInteraction(s, i, "❌ Solo el dueño del bot puede usar este comando.")
 			return
 		}
 
 		if !activeGame || len(currentBets) == 0 {
-			s.ChannelMessageSend(m.ChannelID, "❌ No hay apuestas activas para revertir.")
+			respondInteraction(s, i, "❌ No hay apuestas activas para revertir.")
 			return
 		}
 
-		// Revertir todas las apuestas
 		revertedCount := 0
 		totalReturned := 0.0
 		for userID, bet := range currentBets {
 			userPoints.Add(userID, bet.Amount)
 			revertedCount++
 			totalReturned += bet.Amount
-			s.ChannelMessageSend(channelID,
-				fmt.Sprintf("🔄 Apuesta revertida: <@%s> (%s) ha recuperado %.2f bostes",
-					userID, bet.Username, bet.Amount))
+
+			// Enviar mensaje individual como followup
+			s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+				Content: fmt.Sprintf("🔄 Apuesta revertida: <@%s> (%s) ha recuperado %.2f bostes",
+					userID, bet.Username, bet.Amount),
+			})
 		}
 
 		_ = userPoints.Save()
-		currentBets = make(map[string]Bet) // Limpiar apuestas
+		currentBets = make(map[string]Bet)
 
-		// Mensaje de resumen
-		s.ChannelMessageSend(m.ChannelID,
-			fmt.Sprintf("✅ %d apuestas revertidas. Total devuelto: %.2f bostes",
-				revertedCount, totalReturned))
+		respondInteraction(s, i, fmt.Sprintf("✅ %d apuestas revertidas. Total devuelto: %.2f bostes",
+			revertedCount, totalReturned))
 
-		// Opcional: Cerrar apuestas después de revertir
 		bettingOpen = false
 		if bettingCloseCh != nil {
 			close(bettingCloseCh)

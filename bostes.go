@@ -114,116 +114,117 @@ func (up *UserPoints) Set(userID string, amount float64) { // Nueva función par
 	up.Points[userID] = amount
 }
 
-func handlePuntosCommands(s *discordgo.Session, m *discordgo.MessageCreate, content string) {
-	if m.Author.Bot { // Ignorar mensajes de otros bots
+func handlePuntosCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Member == nil || i.Member.User == nil {
 		return
 	}
 
-	switch content {
-	case "!bostes":
-		er := userPoints.Load()
-		if er != nil {
-			log.Fatal(er)
-		}
-		puntos := userPoints.Get(m.Author.ID)
-		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("<@%s> tienes %.2f bostes.", m.Author.ID, puntos))
-		if err != nil {
-			log.Printf("Error enviando mensaje: %v", err)
+	if err := userPoints.Load(); err != nil {
+		log.Printf("Error cargando puntos: %v", err)
+	}
+
+	puntos := userPoints.Get(i.Member.User.ID)
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("<@%s> tienes %.2f bostes.", i.Member.User.ID, puntos),
+		},
+	})
+}
+
+func handleRankingCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	// Cargar puntos
+	if err := userPoints.Load(); err != nil {
+		log.Printf("Error loading points: %v", err)
+		respondInteraction(s, i, "⚠️ Error al cargar el ranking. Intenta nuevamente.")
+		return
+	}
+
+	userPoints.mu.Lock()
+	defer userPoints.mu.Unlock()
+
+	// Estructura para el ranking (igual que en tu versión)
+	var ranking []struct {
+		ID    string
+		Name  string
+		Score float64
+	}
+
+	// Construir ranking
+	for userID, points := range userPoints.Points {
+		member, err := s.GuildMember(i.GuildID, userID)
+		name := userID // Default
+		if err == nil {
+			name = member.User.Username
+			if member.Nick != "" {
+				name = member.Nick
+			}
 		}
 
-	case "!ranking":
-		if err := userPoints.Load(); err != nil {
-			log.Printf("Error loading points: %v", err)
-			s.ChannelMessageSend(m.ChannelID, "⚠️ Error al cargar el ranking. Intenta nuevamente.")
-			return
-		}
-
-		userPoints.mu.Lock()
-		defer userPoints.mu.Unlock()
-
-		// Construir ranking
-		var ranking []struct {
+		ranking = append(ranking, struct {
 			ID    string
 			Name  string
 			Score float64
+		}{userID, name, points})
+	}
+
+	// Ordenar (igual que tu versión)
+	sort.Slice(ranking, func(i, j int) bool {
+		return ranking[i].Score > ranking[j].Score
+	})
+
+	// Construir mensaje (igual que tu formato original)
+	var msg strings.Builder
+	msg.WriteString("**🏆 RANKING GLOBAL**\n")
+	msg.WriteString("```\n")
+	msg.WriteString("\n")
+	msg.WriteString("  Pos.    Usuario                        Puntos      \n")
+	msg.WriteString("\n")
+
+	count := 0
+	trophies := []string{"🥇", "🥈", "🥉"}
+	for i, user := range ranking {
+		if i >= 15 {
+			break
 		}
 
-		for userID, points := range userPoints.Points {
-			member, err := s.GuildMember(m.GuildID, userID)
-			name := userID // Default if can't get name
-			if err == nil {
-				name = member.User.Username
-				if member.Nick != "" {
-					name = member.Nick
-				}
-			}
-
-			ranking = append(ranking, struct {
-				ID    string
-				Name  string
-				Score float64
-			}{userID, name, points})
+		displayName := user.Name
+		if len(displayName) > 25 {
+			displayName = displayName[:22] + "..."
 		}
 
-		sort.Slice(ranking, func(i, j int) bool {
-			return ranking[i].Score > ranking[j].Score
-		})
-
-		// Construir mensaje
-		var msg strings.Builder
-		msg.WriteString("**🏆 RANKING GLOBAL**\n")
-		msg.WriteString("```\n")
-		msg.WriteString("\n")
-		msg.WriteString("  Pos.    Usuario                        Puntos      \n")
-		msg.WriteString("\n")
-		count := 0
-		trophies := []string{"🥇", "🥈", "🥉"}
-		for i, user := range ranking {
-			if i >= 15 { // Limitar a top 15
-				break
-			}
-
-			// Formatear nombre para que no rompa la tabla
-			displayName := user.Name
-			if len(displayName) > 25 {
-				displayName = displayName[:22] + "..."
-			}
-
-			// Añadir emoji de trofeo a los primeros 3
-			trophy := ""
-			if i < len(trophies) {
-				trophy = trophies[i]
-			}
-
-			if count < 3 {
-				msg.WriteString(fmt.Sprintf("  %-2d%-2s   %-28s   %9.2f   \n",
-					i+1,
-					trophy,
-					displayName,
-					user.Score))
-				count++
-				if count == 3 {
-					msg.WriteString("\n")
-				}
-			} else {
-				msg.WriteString(fmt.Sprintf("  %-2d%-2s    %-28s   %9.2f   \n",
-					i+1,
-					trophy,
-					displayName,
-					user.Score))
-			}
-
+		trophy := ""
+		if i < len(trophies) {
+			trophy = trophies[i]
 		}
 
-		msg.WriteString("\n")
-		msg.WriteString("```")
-
-		// Enviar mensaje
-		_, err := s.ChannelMessageSend(m.ChannelID, msg.String())
-		if err != nil {
-			log.Printf("Error sending ranking: %v", err)
+		if count < 3 {
+			msg.WriteString(fmt.Sprintf("  %-2d%-2s   %-28s   %9.2f   \n",
+				i+1,
+				trophy,
+				displayName,
+				user.Score))
+			count++
+			if count == 3 {
+				msg.WriteString("\n")
+			}
+		} else {
+			msg.WriteString(fmt.Sprintf("  %-2d%-2s    %-28s   %9.2f   \n",
+				i+1,
+				trophy,
+				displayName,
+				user.Score))
 		}
 	}
+
+	msg.WriteString("\n")
+	msg.WriteString("```")
+
+	// Responder usando la interacción
+	respondInteraction(s, i, msg.String())
+
 }
 
 func voiceChannelChecker(s *discordgo.Session) {
@@ -231,14 +232,14 @@ func voiceChannelChecker(s *discordgo.Session) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		pointsToAdd := 5.0 // Valor por defecto
+		pointsToAdd := 10.0 // Valor por defecto
 
 		specialUserMutex.Lock()
 		// Prioridad: Lucia > Gabriel > Normal
 		if specialUserActive {
 			pointsToAdd = 100.0
 		} else if specialUserActive1 {
-			pointsToAdd = 10.0
+			pointsToAdd = 20.0
 		}
 		specialUserMutex.Unlock()
 
@@ -249,7 +250,7 @@ func voiceChannelChecker(s *discordgo.Session) {
 						logName := "normales"
 						if pointsToAdd == 100.0 {
 							logName = "PREMIUM (Lucia)"
-						} else if pointsToAdd == 10.0 {
+						} else if pointsToAdd == 20.0 {
 							logName = "PREMIUM (Gabriel)"
 						}
 						log.Printf("Bostes %s añadidos a %s (ahora tiene %.2f)\n", logName, vs.UserID, userPoints.Get(vs.UserID))
@@ -291,12 +292,12 @@ func checkSpecialUser(s *discordgo.Session) {
 
 			if specialUserActive {
 				log.Printf("Usuario especial (Lucia) %s detectado en llamada - Activando modo premium (100 puntos)\n", specialUserID)
-				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Lucia en llamada ⚠️", notificationRoleID))
+				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Lucia en llamada ⚠️ +100 bostes", notificationRoleID))
 			} else if specialUserActive1 {
-				log.Printf("Usuario especial (Gabriel) %s detectado en llamada - Activando modo premium (10 puntos)\n", specialUserID1)
-				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️", notificationRoleID))
+				log.Printf("Usuario especial (Gabriel) %s detectado en llamada - Activando modo premium (20 puntos)\n", specialUserID1)
+				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️ +15 bostes", notificationRoleID))
 			} else {
-				log.Printf("Ningún usuario especial detectado - Volviendo a modo normal (5 puntos)\n")
+				log.Printf("Ningún usuario especial detectado - Volviendo a modo normal (10 puntos)\n")
 			}
 		}
 		specialUserMutex.Unlock()

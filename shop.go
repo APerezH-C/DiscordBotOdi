@@ -44,61 +44,65 @@ type Shop struct {
 	mu    sync.Mutex
 }
 
-func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
-
+func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Cargar tienda (igual que tu versión original)
 	er := shop.Load()
 	if er != nil {
 		log.Printf("Error cargando tienda: %v", er)
 	}
 
-	if len(args) < 1 {
-		s.ChannelMessageSend(m.ChannelID, "Uso: !bosteCompra <nombre-del-objeto>")
+	// Extraer opciones del comando
+	options := i.ApplicationCommandData().Options
+	if len(options) == 0 {
+		respondInteraction(s, i, "Uso: /bostecompra <nombre-del-objeto>")
 		return
 	}
 
-	itemKey := args[0]
-	userID := m.Author.ID
+	itemKey := options[0].StringValue()
+	userID := i.Member.User.ID
 
 	shop.mu.Lock()
 	item, exists := shop.Items[itemKey]
 	shop.mu.Unlock()
 
 	if !exists {
-		s.ChannelMessageSend(m.ChannelID, "Ese objeto no existe en la tienda.")
+		respondInteraction(s, i, "Ese objeto no existe en la tienda.")
 		return
 	}
 
 	if item.Cantidad <= 0 {
-		s.ChannelMessageSend(m.ChannelID, "Este objeto está agotado.")
+		respondInteraction(s, i, "Este objeto está agotado.")
 		return
 	}
 
-	// Verificar y restar puntos
-	if userPoints.Get(userID) < float64(item.Precio) {
-		s.ChannelMessageSend(m.ChannelID,
+	// Verificar saldo (misma lógica)
+	userBalance := userPoints.Get(userID)
+	if userBalance < float64(item.Precio) {
+		respondInteraction(s, i,
 			fmt.Sprintf("Saldo insuficiente. Necesitas %d bostes y tienes %.2f",
-				item.Precio, userPoints.Get(userID)))
+				item.Precio, userBalance))
 		return
 	}
 
+	// Procesar compra
 	success := userPoints.Add(userID, -float64(item.Precio))
 	if !success {
-		s.ChannelMessageSend(m.ChannelID, "Error al procesar la compra")
+		respondInteraction(s, i, "Error al procesar la compra")
 		return
 	}
 
+	// Actualizar tienda e inventario
 	shop.mu.Lock()
 	item.Cantidad--
 	shop.Items[itemKey] = item
 	shop.mu.Unlock()
 
-	// Actualizar inventario (ya debe estar adaptado a MongoDB)
 	inventory.AddItem(userID, item.Nombre)
 
-	// Guardar cambios en puntos, tienda e inventario
+	// Guardar cambios (igual que tu versión)
 	if err := userPoints.Save(); err != nil {
 		log.Printf("Error guardando bostes: %v", err)
-		s.ChannelMessageSend(m.ChannelID, "Error al guardar los puntos. Contacta con un admin.")
+		respondInteraction(s, i, "Error al guardar los puntos. Contacta con un admin.")
 		return
 	}
 
@@ -110,22 +114,23 @@ func handleBuyCommand(s *discordgo.Session, m *discordgo.MessageCreate, args []s
 		log.Printf("Error guardando inventario: %v", err)
 	}
 
-	s.ChannelMessageSend(m.ChannelID,
+	// Notificar compra exitosa
+	respondInteraction(s, i,
 		fmt.Sprintf("✅ Compra exitosa! Has adquirido **%s** por %d bostes. Tu nuevo saldo: %.2f",
 			item.Nombre, item.Precio, userPoints.Get(userID)))
 
-	member, _ := s.GuildMember(m.GuildID, userID)
-	nickname := member.Nick
+	// Notificación especial (igual que tu versión)
+	nickname := i.Member.Nick
 	if nickname == "" {
-		nickname = member.User.Username
+		nickname = i.Member.User.Username
 	}
 
-	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("<@&%s>⚠️ %s compró **%s**  ⚠️", notificationRoleID, nickname, item.Nombre))
-
+	respondInteraction(s, i,
+		fmt.Sprintf("<@&%s>⚠️ %s compró **%s** ⚠️", notificationRoleID, nickname, item.Nombre))
 }
 
-func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-
+func handleShopCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Cargar tienda (igual que tu versión original)
 	er := shop.Load()
 	if er != nil {
 		log.Printf("Error cargando tienda: %v", er)
@@ -134,30 +139,42 @@ func handleShopCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	shop.mu.Lock()
 	defer shop.mu.Unlock()
 
+	// Verificar si la tienda está vacía (igual que tu versión)
 	if len(shop.Items) == 0 {
-		s.ChannelMessageSend(m.ChannelID, "La tienda está vacía.")
+		respondInteraction(s, i, "La tienda está vacía.")
 		return
 	}
 
+	// Crear embed (idéntico a tu versión)
 	embed := &discordgo.MessageEmbed{
 		Title:       "🏪 Tienda",
 		Description: "Aquí tienes los artículos disponibles:",
-		Color:       0xf3cfb2, // Color que puedes personalizar (aquí uno suave)
+		Color:       0xf3cfb2, // Mismo color que usabas
 		Fields:      []*discordgo.MessageEmbedField{},
 	}
 
+	// Añadir items (misma lógica)
 	for key, item := range shop.Items {
 		field := &discordgo.MessageEmbedField{
-			Name:   fmt.Sprintf("__%s__ (%s)", item.Nombre, key),
-			Value:  fmt.Sprintf("💰 Precio: %d bostes\n📦 Cantidad disponible: %d\n📝 Descripción: %s", item.Precio, item.Cantidad, item.Descripcion),
+			Name: fmt.Sprintf("__%s__ (%s)", item.Nombre, key),
+			Value: fmt.Sprintf("💰 Precio: %d bostes\n📦 Cantidad disponible: %d\n📝 Descripción: %s",
+				item.Precio, item.Cantidad, item.Descripcion),
 			Inline: false,
 		}
 		embed.Fields = append(embed.Fields, field)
 	}
 
-	_, err := s.ChannelMessageSendEmbed(m.ChannelID, embed)
+	// Responder con el embed usando tu método respondInteraction
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+		},
+	})
 	if err != nil {
 		log.Printf("Error enviando embed: %v", err)
+		// Fallback a mensaje simple si falla el embed
+		respondInteraction(s, i, "Error al mostrar la tienda. Intenta nuevamente.")
 	}
 }
 

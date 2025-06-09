@@ -23,26 +23,27 @@ type Inventory struct {
 	mu    sync.Mutex
 }
 
-func handleInventoryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-
+func handleInventoryCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Cargar inventario (igual que tu versión original)
 	er := inventory.Load()
 	if er != nil {
 		log.Printf("Error cargando inventario: %v", er)
 	}
 
-	userID := m.Author.ID
+	userID := i.Member.User.ID
 
 	inventory.mu.Lock()
 	defer inventory.mu.Unlock()
 
 	userItems, exists := inventory.Users[userID]
 	if !exists || len(userItems) == 0 {
-		s.ChannelMessageSend(m.ChannelID, "No tienes ningún bosteObjeto en tu inventario.")
+		respondInteraction(s, i, "No tienes ningún bosteObjeto en tu inventario.")
 		return
 	}
 
+	// Construir respuesta (misma lógica que tu versión)
 	var response strings.Builder
-	response.WriteString(fmt.Sprintf("**🎒 Inventario de %s**\n\n", m.Author.Username))
+	response.WriteString(fmt.Sprintf("**🎒 Inventario de %s**\n\n", i.Member.User.Username))
 
 	itemCounts := make(map[string]int)
 	for _, item := range userItems {
@@ -53,7 +54,8 @@ func handleInventoryCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		response.WriteString(fmt.Sprintf("- %s (x%d)\n", item, count))
 	}
 
-	s.ChannelMessageSend(m.ChannelID, response.String())
+	// Responder usando tu método respondInteraction
+	respondInteraction(s, i, response.String())
 }
 
 func (i *Inventory) Load() error {

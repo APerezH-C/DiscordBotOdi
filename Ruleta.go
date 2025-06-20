@@ -22,7 +22,7 @@ func handleRuletaCommands(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	case "cargar":
 		// Verificar si ya hay un juego activo
 		if gameActive {
-			respondInteraction(s, i, "Ya hay una partida activa. Usa `/terminar` para acabarla.")
+			respondInteraction(s, i, "Ya hay una partida activa. Usa `/terminar` para acabarla.", true)
 			return
 		}
 
@@ -36,25 +36,25 @@ func handleRuletaCommands(s *discordgo.Session, i *discordgo.InteractionCreate) 
 
 		// Validar el número de balas
 		if balas < 1 || balas > 9 {
-			respondInteraction(s, i, "El número de balas debe estar entre 1 y 9.")
+			respondInteraction(s, i, "El número de balas debe estar entre 1 y 9.", true)
 			return
 		}
 
 		// Iniciar el juego
 		iniciarJuego(balas)
 		gameActive = true
-		respondInteraction(s, i, fmt.Sprintf("🔫 Juego iniciado con %d bala(s) entre 9 ranuras. ¡Prepárense!", balas))
+		respondInteraction(s, i, fmt.Sprintf("🔫 Juego iniciado con %d bala(s) entre 9 ranuras. ¡Prepárense!", balas), false)
 
 	case "disparar":
 		// Verificar si hay un juego activo
 		if !gameActive {
-			respondInteraction(s, i, "No hay una partida activa. Usa `/cargar <n>` para comenzar una.")
+			respondInteraction(s, i, "No hay una partida activa. Usa `/cargar <n>` para comenzar una.", true)
 			return
 		}
 
 		// Verificar si se han usado todas las ranuras
 		if len(usedShots) >= 9 {
-			respondInteraction(s, i, "🔚 Todas las ranuras se han usado. Fin del juego.")
+			respondInteraction(s, i, "🔚 Todas las ranuras se han usado. Fin del juego.", false)
 			gameActive = false
 			return
 		}
@@ -62,21 +62,21 @@ func handleRuletaCommands(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		// Realizar el disparo
 		disparo := disparar()
 		if disparo {
-			respondInteraction(s, i, fmt.Sprintf("💥 %s ha muerto...", i.Member.User.Mention()))
+			respondInteraction(s, i, fmt.Sprintf("💥 %s ha muerto...", i.Member.User.Mention()), false)
 			gameActive = false
 			muteUser(s, i.GuildID, i.Member.User.ID, i.ChannelID)
 		} else {
-			respondInteraction(s, i, fmt.Sprintf("😮 %s ha sobrevivido.", i.Member.User.Mention()))
+			respondInteraction(s, i, fmt.Sprintf("😮 %s ha sobrevivido.", i.Member.User.Mention()), false)
 		}
 
 	case "terminar":
 		// Verificar si hay un juego activo
 		if !gameActive {
-			respondInteraction(s, i, "No hay un juego en curso.")
+			respondInteraction(s, i, "No hay un juego en curso.", true)
 			return
 		}
 		gameActive = false
-		respondInteraction(s, i, "🛑 El juego ha sido terminado.")
+		respondInteraction(s, i, "🛑 El juego ha sido terminado.", false)
 	}
 }
 

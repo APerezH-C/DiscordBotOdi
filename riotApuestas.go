@@ -12,8 +12,8 @@ import (
 var (
 	activeGame     = false
 	riotApiKey     = "RGAPI-11188b96-55f9-4ae9-ab43-d28389f55c81"
-	summonerName   = "Maestro Shensual"
-	summonerTag    = "PALO"
+	summonerName   = "肿瘤学家"
+	summonerTag    = "CNCR"
 	region         = "euw1"
 	channelID      = "519551092166623247"
 	currentBets    = make(map[string]Bet)
@@ -47,7 +47,7 @@ func watchForGame(s *discordgo.Session) {
 						"⚠️ Solo puedes apostar UNA vez por partida.\n"+
 						"⏰ Las apuestas se cerrarán en 4 minutos! \n"+
 						"%s",
-					notificationRoleID, summonerName, gameType, "https://op.gg/es/lol/summoners/euw/MaestroShensual-PALO/ingame"))
+					notificationRoleID, summonerName, gameType, fmt.Sprintf("https://op.gg/es/lol/summoners/euw/%s-%s/ingame", summonerName, summonerTag)))
 
 				// Iniciar temporizador para cerrar apuestas
 				bettingCloseCh = make(chan struct{})
@@ -83,41 +83,41 @@ func handleBetCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		options := i.ApplicationCommandData().Options
 
 		if !activeGame {
-			respondInteraction(s, i, "❌ No hay partida activa.")
+			respondInteraction(s, i, "❌ No hay partida activa.", true)
 			return
 		}
 
 		if !bettingOpen {
-			respondInteraction(s, i, "❌ Las apuestas están cerradas para esta partida.")
+			respondInteraction(s, i, "❌ Las apuestas están cerradas para esta partida.", true)
 			return
 		}
 
 		if len(options) != 2 {
-			respondInteraction(s, i, "Uso: `/apuesta win|lose cantidad`")
+			respondInteraction(s, i, "Uso: `/apuesta win|lose cantidad`", true)
 			return
 		}
 
 		userID := i.Member.User.ID
 		if _, exists := currentBets[userID]; exists {
-			respondInteraction(s, i, "❌ Ya has apostado en esta partida.")
+			respondInteraction(s, i, "❌ Ya has apostado en esta partida.", true)
 			return
 		}
 
 		choice := strings.ToLower(options[0].StringValue())
 		if choice != "win" && choice != "lose" {
-			respondInteraction(s, i, "Debes apostar por `win` o `lose`.")
+			respondInteraction(s, i, "Debes apostar por `win` o `lose`.", true)
 			return
 		}
 
 		amount := options[1].FloatValue()
 		if amount <= 0 {
-			respondInteraction(s, i, "Cantidad inválida.")
+			respondInteraction(s, i, "Cantidad inválida.", true)
 			return
 		}
 
 		points := userPoints.Get(userID)
 		if points < amount {
-			respondInteraction(s, i, fmt.Sprintf("❌ No tienes suficientes bostes (tienes %.2f).", points))
+			respondInteraction(s, i, fmt.Sprintf("❌ No tienes suficientes bostes (tienes %.2f).", points), true)
 			return
 		}
 
@@ -129,17 +129,17 @@ func handleBetCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Choice:   choice,
 		}
 
-		respondInteraction(s, i, fmt.Sprintf("✅ Apuesta registrada: %.2f bostes por %s", amount, choice))
+		respondInteraction(s, i, fmt.Sprintf("✅ Apuesta registrada: %.2f bostes por %s", amount, choice), true)
 		_ = userPoints.Save()
 
 	case "revertirapuesta":
 		if i.Member.User.ID != "431796013934837761" {
-			respondInteraction(s, i, "❌ Solo el dueño del bot puede usar este comando.")
+			respondInteraction(s, i, "❌ Solo el dueño del bot puede usar este comando.", true)
 			return
 		}
 
 		if !activeGame || len(currentBets) == 0 {
-			respondInteraction(s, i, "❌ No hay apuestas activas para revertir.")
+			respondInteraction(s, i, "❌ No hay apuestas activas para revertir.", true)
 			return
 		}
 
@@ -160,12 +160,14 @@ func handleBetCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		_ = userPoints.Save()
 		currentBets = make(map[string]Bet)
 
-		respondInteraction(s, i, fmt.Sprintf("✅ %d apuestas revertidas. Total devuelto: %.2f bostes",
-			revertedCount, totalReturned))
+		_, _ = s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: fmt.Sprintf("✅ %d apuestas revertidas. Total devuelto: %.2f bostes",
+				revertedCount, totalReturned),
+		})
 
 		bettingOpen = false
 		if bettingCloseCh != nil {
-			close(bettingCloseCh)
+			closeBettingChannel()
 		}
 	}
 }
@@ -174,7 +176,7 @@ func waitForGameToEnd(s *discordgo.Session) {
 
 	defer func() {
 		if bettingCloseCh != nil {
-			close(bettingCloseCh)
+			closeBettingChannel()
 			bettingCloseCh = nil
 		}
 	}()
@@ -259,9 +261,17 @@ func checkIfInGame() (bool, string, string) {
 		// Verificar si es una partida custom (personalizada)
 		if gameInfo.GameQueueConfigId == 0 || gameInfo.GameType == "CUSTOM_GAME" {
 			return false, "", ""
+		} else if gameInfo.GameQueueConfigId == 440 {
+			return true, fmt.Sprintf("%d", gameInfo.GameId), "FLEX"
+		} else if gameInfo.GameQueueConfigId == 400 {
+			return true, fmt.Sprintf("%d", gameInfo.GameId), "NORMAL"
+		} else if gameInfo.GameQueueConfigId == 430 {
+			return true, fmt.Sprintf("%d", gameInfo.GameId), "NORMAL BLIND"
+		} else if gameInfo.GameQueueConfigId == 450 {
+			return true, fmt.Sprintf("%d", gameInfo.GameId), "ARAM"
 		}
 
-		return true, fmt.Sprintf("%d", gameInfo.GameId), gameInfo.GameType
+		return true, fmt.Sprintf("%d", gameInfo.GameId), "RANKED"
 	}
 	return false, "", ""
 }
@@ -312,4 +322,16 @@ func checkGameResult() bool {
 		}
 	}
 	return false
+}
+
+func closeBettingChannel() {
+	if bettingCloseCh != nil {
+		select {
+		case <-bettingCloseCh:
+			// Ya fue cerrado
+		default:
+			close(bettingCloseCh)
+		}
+		bettingCloseCh = nil
+	}
 }

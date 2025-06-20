@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	checkInterval       = 10 * time.Minute
+	checkInterval       = 15 * time.Minute
 	minuteCheckInterval = 1 * time.Minute
 	specialUserID       = "638458084653531137" // Reemplaza con el ID real del usuario
 	specialUserID1      = "507890132154843146"
@@ -125,12 +125,8 @@ func handlePuntosCommands(s *discordgo.Session, i *discordgo.InteractionCreate) 
 
 	puntos := userPoints.Get(i.Member.User.ID)
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("<@%s> tienes %.2f bostes.", i.Member.User.ID, puntos),
-		},
-	})
+	respondInteraction(s, i, fmt.Sprintf("<@%s> tienes %.2f bostes.", i.Member.User.ID, puntos), false)
+
 }
 
 func handleRankingCommands(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -138,7 +134,7 @@ func handleRankingCommands(s *discordgo.Session, i *discordgo.InteractionCreate)
 	// Cargar puntos
 	if err := userPoints.Load(); err != nil {
 		log.Printf("Error loading points: %v", err)
-		respondInteraction(s, i, "⚠️ Error al cargar el ranking. Intenta nuevamente.")
+		respondInteraction(s, i, "⚠️ Error al cargar el ranking. Intenta nuevamente.", false)
 		return
 	}
 
@@ -223,7 +219,7 @@ func handleRankingCommands(s *discordgo.Session, i *discordgo.InteractionCreate)
 	msg.WriteString("```")
 
 	// Responder usando la interacción
-	respondInteraction(s, i, msg.String())
+	respondInteraction(s, i, msg.String(), false)
 
 }
 
@@ -232,14 +228,14 @@ func voiceChannelChecker(s *discordgo.Session) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		pointsToAdd := 10.0 // Valor por defecto
+		pointsToAdd := 50.0 // Valor por defecto
 
 		specialUserMutex.Lock()
 		// Prioridad: Lucia > Gabriel > Normal
 		if specialUserActive {
-			pointsToAdd = 100.0
+			pointsToAdd = 500.0
 		} else if specialUserActive1 {
-			pointsToAdd = 20.0
+			pointsToAdd = 60.0
 		}
 		specialUserMutex.Unlock()
 
@@ -248,9 +244,9 @@ func voiceChannelChecker(s *discordgo.Session) {
 				if !vs.Mute && !vs.SelfMute && !vs.Deaf && !vs.SelfDeaf {
 					if added := userPoints.Add(vs.UserID, pointsToAdd); added {
 						logName := "normales"
-						if pointsToAdd == 100.0 {
+						if pointsToAdd == 500.0 {
 							logName = "PREMIUM (Lucia)"
-						} else if pointsToAdd == 20.0 {
+						} else if pointsToAdd == 60.0 {
 							logName = "PREMIUM (Gabriel)"
 						}
 						log.Printf("Bostes %s añadidos a %s (ahora tiene %.2f)\n", logName, vs.UserID, userPoints.Get(vs.UserID))
@@ -291,11 +287,11 @@ func checkSpecialUser(s *discordgo.Session) {
 			specialUserActive1 = foundGabriel
 
 			if specialUserActive {
-				log.Printf("Usuario especial (Lucia) %s detectado en llamada - Activando modo premium (100 puntos)\n", specialUserID)
-				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Lucia en llamada ⚠️ +100 bostes", notificationRoleID))
+				log.Printf("Usuario especial (Lucia) %s detectado en llamada - Activando modo premium (500 puntos)\n", specialUserID)
+				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Lucia en llamada ⚠️ +500 bostes", notificationRoleID))
 			} else if specialUserActive1 {
-				log.Printf("Usuario especial (Gabriel) %s detectado en llamada - Activando modo premium (20 puntos)\n", specialUserID1)
-				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️ +15 bostes", notificationRoleID))
+				log.Printf("Usuario especial (Gabriel) %s detectado en llamada - Activando modo premium (60 puntos)\n", specialUserID1)
+				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️ +60 bostes", notificationRoleID))
 			} else {
 				log.Printf("Ningún usuario especial detectado - Volviendo a modo normal (10 puntos)\n")
 			}

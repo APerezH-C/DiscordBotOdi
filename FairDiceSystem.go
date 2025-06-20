@@ -45,6 +45,9 @@ func (de *DiceEngine) RotateSeed() {
 
 	de.previousSeed = de.serverSeed
 	de.serverSeed = hex.EncodeToString(b)
+
+	fmt.Printf("\n🔐 SEMILLA ACTUAL: %s\n", de.serverSeed)
+	fmt.Printf("🔓 SEMILLA ANTERIOR: %s\n\n", de.previousSeed)
 }
 
 // CalculateRoll calcula el resultado basado en las semillas

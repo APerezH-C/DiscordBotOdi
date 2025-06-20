@@ -37,6 +37,7 @@ type ShopItem struct {
 	Precio      int    `bson:"Precio"`
 	Cantidad    int    `bson:"Cantidad"`
 	Descripcion string `bson:"Descripcion"`
+	Precio1     string `bson:"Precio1"`
 }
 
 type Shop struct {
@@ -54,7 +55,7 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Extraer opciones del comando
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
-		respondInteraction(s, i, "Uso: /bostecompra <nombre-del-objeto>")
+		respondInteraction(s, i, "Uso: /bostecompra <nombre-del-objeto>", true)
 		return
 	}
 
@@ -66,12 +67,12 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	shop.mu.Unlock()
 
 	if !exists {
-		respondInteraction(s, i, "Ese objeto no existe en la tienda.")
+		respondInteraction(s, i, "Ese objeto no existe en la tienda.", true)
 		return
 	}
 
 	if item.Cantidad <= 0 {
-		respondInteraction(s, i, "Este objeto está agotado.")
+		respondInteraction(s, i, "Este objeto está agotado.", true)
 		return
 	}
 
@@ -80,14 +81,14 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if userBalance < float64(item.Precio) {
 		respondInteraction(s, i,
 			fmt.Sprintf("Saldo insuficiente. Necesitas %d bostes y tienes %.2f",
-				item.Precio, userBalance))
+				item.Precio, userBalance), true)
 		return
 	}
 
 	// Procesar compra
 	success := userPoints.Add(userID, -float64(item.Precio))
 	if !success {
-		respondInteraction(s, i, "Error al procesar la compra")
+		respondInteraction(s, i, "Error al procesar la compra", true)
 		return
 	}
 
@@ -102,7 +103,7 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Guardar cambios (igual que tu versión)
 	if err := userPoints.Save(); err != nil {
 		log.Printf("Error guardando bostes: %v", err)
-		respondInteraction(s, i, "Error al guardar los puntos. Contacta con un admin.")
+		respondInteraction(s, i, "Error al guardar los puntos. Contacta con un admin.", true)
 		return
 	}
 
@@ -117,7 +118,7 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Notificar compra exitosa
 	respondInteraction(s, i,
 		fmt.Sprintf("✅ Compra exitosa! Has adquirido **%s** por %d bostes. Tu nuevo saldo: %.2f",
-			item.Nombre, item.Precio, userPoints.Get(userID)))
+			item.Nombre, item.Precio, userPoints.Get(userID)), true)
 
 	// Notificación especial (igual que tu versión)
 	nickname := i.Member.Nick
@@ -125,8 +126,12 @@ func handleBuyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		nickname = i.Member.User.Username
 	}
 
-	respondInteraction(s, i,
-		fmt.Sprintf("<@&%s>⚠️ %s compró **%s** ⚠️", notificationRoleID, nickname, item.Nombre))
+	_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: fmt.Sprintf("<@&%s>⚠️ %s compró **%s** ⚠️", notificationRoleID, nickname, item.Nombre),
+	})
+	if err != nil {
+		return
+	}
 }
 
 func handleShopCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -141,7 +146,7 @@ func handleShopCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// Verificar si la tienda está vacía (igual que tu versión)
 	if len(shop.Items) == 0 {
-		respondInteraction(s, i, "La tienda está vacía.")
+		respondInteraction(s, i, "La tienda está vacía.", true)
 		return
 	}
 
@@ -157,8 +162,8 @@ func handleShopCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	for key, item := range shop.Items {
 		field := &discordgo.MessageEmbedField{
 			Name: fmt.Sprintf("__%s__ (%s)", item.Nombre, key),
-			Value: fmt.Sprintf("💰 Precio: %d bostes\n📦 Cantidad disponible: %d\n📝 Descripción: %s",
-				item.Precio, item.Cantidad, item.Descripcion),
+			Value: fmt.Sprintf("💰 Precio: %s bostes\n📦 Cantidad disponible: %d\n📝 Descripción: %s",
+				item.Precio1, item.Cantidad, item.Descripcion),
 			Inline: false,
 		}
 		embed.Fields = append(embed.Fields, field)
@@ -174,7 +179,7 @@ func handleShopCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if err != nil {
 		log.Printf("Error enviando embed: %v", err)
 		// Fallback a mensaje simple si falla el embed
-		respondInteraction(s, i, "Error al mostrar la tienda. Intenta nuevamente.")
+		respondInteraction(s, i, "Error al mostrar la tienda. Intenta nuevamente.", true)
 	}
 }
 

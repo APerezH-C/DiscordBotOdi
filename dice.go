@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -24,7 +26,47 @@ var (
 	diceEngine = NewDiceEngine()
 )
 
+func parseDecimal(input string) (float64, error) {
+	// Reemplaza coma por punto para manejar decimal europeo
+	cleanInput := strings.ReplaceAll(input, ",", ".")
+	val, err := strconv.ParseFloat(cleanInput, 64)
+	if err != nil {
+		return 0, errors.New("Formato decimal inválido")
+	}
+	return val, nil
+}
+
 func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Extraer opciones
+	options := i.ApplicationCommandData().Options
+
+	userID := i.Member.User.ID
+
+	betType := strings.ToLower(options[0].StringValue())
+	targetStr := options[1].StringValue()
+	target, err := parseDecimal(targetStr)
+	if err != nil {
+		respondInteraction(s, i, "Número inválido.", true)
+		return
+	}
+
+	if betType == "under" && (target < underminNumber || target > undermaxNumber) {
+		respondInteraction(s, i, fmt.Sprintf("El número para 'under' debe estar entre %.2f y %.2f.", underminNumber, undermaxNumber), true)
+		return
+	}
+
+	if betType == "over" && (target < overminNumber || target > overmaxNumber) {
+		respondInteraction(s, i, fmt.Sprintf("El número para 'over' debe estar entre %.2f y %.2f.", overminNumber, overmaxNumber), true)
+		return
+	}
+
+	// Verificar saldo también antes
+	amountStr := options[2].StringValue()
+	amount, err := parseDecimal(amountStr)
+	if userPoints.Get(userID) < float64(amount) {
+		respondInteraction(s, i, "Saldo insuficiente.", true)
+		return
+	}
 
 	// 1. Respuesta inmediata
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -35,17 +77,6 @@ func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	go func() {
-		// Extraer opciones
-		options := i.ApplicationCommandData().Options
-
-		// Validar que tenemos las 3 opciones requeridas
-		if len(options) != 3 {
-			respondInteraction(s, i, "Uso: `/dice <under/over> <número> <cantidad>`")
-			return
-		}
-
-		userID := i.Member.User.ID
-
 		stats, exists := userStats.get(userID)
 		if !exists {
 			stats = UserStat{}
@@ -53,34 +84,14 @@ func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		// Obtener tipo de apuesta
 		betType := strings.ToLower(options[0].StringValue())
-		if betType != "under" && betType != "over" {
-			respondInteraction(s, i, "Tipo de apuesta inválido. Usa `under` o `over`")
-			return
-		}
 
 		// Obtener número objetivo
-		target := options[1].FloatValue()
-		if betType == "under" && (target < underminNumber || target > undermaxNumber) {
-			respondInteraction(s, i, fmt.Sprintf("Número inválido. Para under debe ser entre %.2f y %.2f", underminNumber, undermaxNumber))
-			return
-		}
-		if betType == "over" && (target < overminNumber || target > overmaxNumber) {
-			respondInteraction(s, i, fmt.Sprintf("Número inválido. Para over debe ser entre %.2f y %.2f", overminNumber, overmaxNumber))
-			return
-		}
+		targetStr := options[1].StringValue()
+		target, err := parseDecimal(targetStr)
 
 		// Obtener cantidad
-		amount := options[2].FloatValue()
-		if amount < 1 {
-			respondInteraction(s, i, "Cantidad inválida. Mínimo 1 punto")
-			return
-		}
-
-		// Verificar saldo
-		if userPoints.Get(userID) < float64(amount) {
-			respondInteraction(s, i, "Saldo insuficiente")
-			return
-		}
+		amountStr := options[2].StringValue()
+		amount, err := parseDecimal(amountStr)
 
 		// Incrementar nonce
 		stats.NonceActual++
@@ -98,10 +109,20 @@ func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		stats.TotalApostado += amount
 
 		if win {
+			boteAmount := amount * 0.01
 			userPoints.Add(userID, payout-amount)
 			stats.TotalGanado += payout - amount
+
+			if err := AddToBote(boteAmount); err != nil {
+				log.Printf("Error añadiendo al bote: %v", err)
+			}
 		} else {
+			boteAmount := amount * 0.25
 			userPoints.Add(userID, -amount)
+
+			if err := AddToBote(boteAmount); err != nil {
+				log.Printf("Error añadiendo al bote: %v", err)
+			}
 		}
 
 		// Guardar estadísticas
@@ -116,7 +137,7 @@ func handleDiceCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		embed := createDiceEmbed(i.Member.User, rollResult, win, amount, payout, target, betType, clientSeed, stats.NonceActual)
 
 		// Usar followup para enviar el embed después de la respuesta inicial
-		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 			Embeds: []*discordgo.MessageEmbed{embed},
 		})
 

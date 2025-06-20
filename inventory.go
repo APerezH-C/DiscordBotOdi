@@ -37,7 +37,7 @@ func handleInventoryCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	userItems, exists := inventory.Users[userID]
 	if !exists || len(userItems) == 0 {
-		respondInteraction(s, i, "No tienes ningún bosteObjeto en tu inventario.")
+		respondInteraction(s, i, "No tienes ningún bosteObjeto en tu inventario.", true)
 		return
 	}
 
@@ -55,7 +55,7 @@ func handleInventoryCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 
 	// Responder usando tu método respondInteraction
-	respondInteraction(s, i, response.String())
+	respondInteraction(s, i, response.String(), false)
 }
 
 func (i *Inventory) Load() error {

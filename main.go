@@ -89,6 +89,12 @@ func main() {
 				handleVerifyCommand(s, i)
 			case "quienes":
 				handleWhoIsCommand(s, i)
+			case "bote":
+				handleBoteCommand(s, i)
+			case "resetbote":
+				handleResetBoteCommand(s, i)
+			case "givebote":
+				handleGiveBoteCommand(s, i)
 			}
 		}
 	})
@@ -260,7 +266,7 @@ func registerSlashCommands(s *discordgo.Session) {
 					},
 				},
 				{
-					Type: discordgo.ApplicationCommandOptionNumber,
+					Type: discordgo.ApplicationCommandOptionString,
 					Name: "numero",
 					Description: fmt.Sprintf("Número objetivo (under: %.2f-%.2f | over: %.2f-%.2f)",
 						underminNumber, undermaxNumber, overminNumber, overmaxNumber),
@@ -269,7 +275,7 @@ func registerSlashCommands(s *discordgo.Session) {
 					MaxValue: overmaxNumber,
 				},
 				{
-					Type:        discordgo.ApplicationCommandOptionNumber,
+					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "cantidad",
 					Description: "Cantidad a apostar",
 					Required:    true,
@@ -396,6 +402,26 @@ func registerSlashCommands(s *discordgo.Session) {
 				},
 			},
 		},
+		{
+			Name:        "bote",
+			Description: "Muestra la cantidad acumulada en el bote",
+		},
+		{
+			Name:        "resetbote",
+			Description: "[ADMIN] Reinicia el bote a 0",
+		},
+		{
+			Name:        "givebote",
+			Description: "[ADMIN] Entrega todo el bote a un usuario",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "usuario",
+					Description: "Usuario que recibirá el bote",
+					Required:    true,
+				},
+			},
+		},
 	}
 
 	time.Sleep(1 * time.Second) // Espera para evitar rate limits
@@ -414,13 +440,24 @@ func registerSlashCommands(s *discordgo.Session) {
 
 }
 
-func respondInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: content,
-		},
-	})
+func respondInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, content string, user bool) {
+	if user {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: content,
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	} else {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: content,
+			},
+		})
+	}
+
 }
 
 func LogInfo(format string, args ...any) {

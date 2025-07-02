@@ -4,6 +4,7 @@ import (
 	"RuletaRusaOdi/database"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"os/signal"
@@ -26,14 +27,24 @@ var (
 	userPoints = &UserPoints{}
 	userStats  = &UserStats{}
 
-	token = "Bot MTM3OTQ1OTMzOTM3ODc1NzY4Mg.GO03f6.S3W9EKizwoWQz3PX1akwxAyOgIxVoBB5pbx3q8"
+	token    string
+	mongoURI string
 
 	commandsRegistered bool = false
 )
 
 func main() {
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error cargando .env")
+	}
+	token = os.Getenv("DISCORD_TOKEN")
+	mongoURI = os.Getenv("MONGO_URI")
+	riotApiKey = os.Getenv("RIOT_API_KEY")
+
 	log.Println("Conectando a MongoDB...")
-	err := database.Connect("mongodb+srv://jandropehe4:3542Mayo14_88+@pereezz.6iuh8di.mongodb.net/?retryWrites=true&w=majority&appName=Pereezz")
+	err = database.Connect(mongoURI)
 	if err != nil {
 		LogError("Error conectandose a MongoDB: %v", err)
 	}

@@ -11,9 +11,9 @@ import (
 
 var (
 	activeGame     = false
-	riotApiKey     = "RGAPI-11188b96-55f9-4ae9-ab43-d28389f55c81"
-	summonerName   = "肿瘤学家"
-	summonerTag    = "CNCR"
+	riotApiKey     string
+	summonerName   = "Maestro shensual"
+	summonerTag    = "PALO"
 	region         = "euw1"
 	channelID      = "519551092166623247"
 	currentBets    = make(map[string]Bet)

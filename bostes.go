@@ -228,14 +228,14 @@ func voiceChannelChecker(s *discordgo.Session) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		pointsToAdd := 50.0 // Valor por defecto
+		pointsToAdd := 75.0 // Valor por defecto
 
 		specialUserMutex.Lock()
 		// Prioridad: Lucia > Gabriel > Normal
 		if specialUserActive {
 			pointsToAdd = 500.0
 		} else if specialUserActive1 {
-			pointsToAdd = 60.0
+			pointsToAdd = 100.0
 		}
 		specialUserMutex.Unlock()
 
@@ -246,7 +246,7 @@ func voiceChannelChecker(s *discordgo.Session) {
 						logName := "normales"
 						if pointsToAdd == 500.0 {
 							logName = "PREMIUM (Lucia)"
-						} else if pointsToAdd == 60.0 {
+						} else if pointsToAdd == 100.0 {
 							logName = "PREMIUM (Gabriel)"
 						}
 						log.Printf("Bostes %s añadidos a %s (ahora tiene %.2f)\n", logName, vs.UserID, userPoints.Get(vs.UserID))
@@ -291,9 +291,9 @@ func checkSpecialUser(s *discordgo.Session) {
 				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Lucia en llamada ⚠️ +500 bostes", notificationRoleID))
 			} else if specialUserActive1 {
 				log.Printf("Usuario especial (Gabriel) %s detectado en llamada - Activando modo premium (60 puntos)\n", specialUserID1)
-				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️ +60 bostes", notificationRoleID))
+				s.ChannelMessageSend(channelID, fmt.Sprintf("<@&%s>⚠️ Gabriel en llamada ⚠️ +100 bostes", notificationRoleID))
 			} else {
-				log.Printf("Ningún usuario especial detectado - Volviendo a modo normal (10 puntos)\n")
+				log.Printf("Ningún usuario especial detectado - Volviendo a modo normal (75 puntos)\n")
 			}
 		}
 		specialUserMutex.Unlock()
